@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+sim_build/
+*.vcd
+*.fst
+results.xml
