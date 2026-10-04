@@ -34,7 +34,7 @@ def black_scholes_call(S0, K, r, sigma, T):
     return S0 * norm_cdf(d1) - K * math.exp(-r * T) * norm_cdf(d2)
 
 
-def mc_call_float(S0, K, r, sigma, T, n, seed):
+def mc_call_float(S0, K, r, sigma, T, n, seed, use_clt = False):
     """
     Estimates the fair price of a European call option by Monte Carlo 
     simulation
@@ -47,6 +47,7 @@ def mc_call_float(S0, K, r, sigma, T, n, seed):
         n: number of simulated price paths
         seed: seed for the random number generator; the same seed 
               gives the same result.
+        use_clt: if true draw Z using hardware method, if false use numpy
     return: fair/premium price same currency as S0
     """
     rng = np.random.default_rng(seed)
@@ -56,7 +57,10 @@ def mc_call_float(S0, K, r, sigma, T, n, seed):
     b = sigma * np.sqrt(T)
 
     #per-path work
-    Z = rng.standard_normal(n)
+    if use_clt:
+        Z = clt_normal(rng, n) # cheap hardware Gaussian
+    else:
+        Z = rng.standard_normal(n) # exact Gaussian (reference)
     S_T = S0 * np.exp(a + b*Z)
     payoff = np.maximum(S_T - K, 0)
 
@@ -64,7 +68,18 @@ def mc_call_float(S0, K, r, sigma, T, n, seed):
     discount = math.exp(-r * T)
     return discount * np.mean(payoff)
 
-
+def clt_normal(rng, n):
+    """
+    Generates approximate standard normal random numbers using central limit
+    theorem: sum 12 uniforms on [0, 1) and subtract by 6. This is software
+    model of the hardware Gaussian generator (uses adders only)
+    Args:
+        rng: random numpy generator
+        n: number of samples to generate per simulated path
+    return: array of n values with mean ~0 and variance ~1, limited to [-6, 6]
+    """
+    U = rng.random((n, 12))
+    return U.sum(axis = 1) - 6
 
 if __name__ == "__main__":
     S0 = 100
@@ -74,14 +89,27 @@ if __name__ == "__main__":
     T = 1
     EXPECTED = 10.4506
     SEED = 42
+    N_STATS = 1_000_000
 
     #1 exact price
     price = black_scholes_call(S0, K, r, sigma, T)
     print(f"computed: {price:.4f}. expected: {EXPECTED}")
 
     #2 monte carlo
-    print(f"{'n':>10} {'MC price':>10} {'abs error':>10}")
+    print(f"{'n':>10} {'MC price':>10} {'abs error':>10}"
+          f"{'CLT Price':>10} {'CLT Error':>10}")
     for n in [1_000, 10_000, 100_000, 1_000_000]:
         mc_price = mc_call_float(S0, K, r, sigma, T, n, SEED)
         error = abs(mc_price - price)
-        print(f"{n:>10} {mc_price:>10.4f} {error:>10.4f}")
+        clt_price = mc_call_float(S0, K, r, sigma, T, n, SEED, use_clt=True)
+        clt_error = abs(clt_price - price)
+        print(f"{n:>10} {mc_price:>10.4f} {error:>10.4f}"
+              f" {clt_price:>10.4f} {clt_error:>10.4f}")
+
+    #3 Z stats: does the CLT trick look like a standard normal
+    Z_np = np.random.default_rng(SEED).standard_normal(N_STATS)
+    Z_clt = clt_normal(np.random.default_rng(SEED), N_STATS)
+    print(f"numpy: mean {Z_np.mean():.4f}  var {Z_np.var():.4f}"
+          f"  max|Z| {np.abs(Z_np).max():.2f}")
+    print(f"CLT:   mean {Z_clt.mean():.4f}  var {Z_clt.var():.4f}"
+          f"  max|Z| {np.abs(Z_clt).max():.2f}")
