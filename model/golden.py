@@ -6,6 +6,7 @@ aka the hardware's outputs will be checked against these function
 import math
 import numpy as np
 
+MASK32 = 0xFFFF_FFFF
 
 def norm_cdf(x):
     """
@@ -80,6 +81,18 @@ def clt_normal(rng, n):
     """
     U = rng.random((n, 12))
     return U.sum(axis = 1) - 6
+
+def xorshift32(state, n):
+    """
+    return next n states of xorshift from a seed
+    """
+    out = []
+    for i in range(n):
+        state ^= (state << 13) & MASK32
+        state ^= (state >> 17)
+        state ^= (state << 5) & MASK32
+        out.append(state)
+    return out
 
 if __name__ == "__main__":
     S0 = 100
