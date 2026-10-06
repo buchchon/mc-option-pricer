@@ -4,21 +4,27 @@ A fixed-point, fully pipelined hardware Monte Carlo pricer for European call opt
 
 Synthesized for a Lattice ECP5-85F with the open-source Yosys + nextpnr flow, a single lane closes at **89.1 MHz (~89 M paths/s)**. That's up from a 61.6 MHz baseline after two rounds of critical-path-driven pipelining, with **+45% throughput for 69 extra flip-flops**.
 
-**Why hardware?** Monte Carlo error shrinks as 1/√n, so every extra digit of accuracy costs **100× more paths**. Each path is independent and does the same short sequence of math, which makes it a throughput problem that suits a deep pipeline and parallel lanes.
+**Why hardware?** The Monte Carlo error shrinks as 1/√n, so every extra digit of accuracy costs **100× more paths**. Each path is independent and does the same short sequence of math, which makes it a throughput problem that suits a deep pipeline and parallel lanes.
 
 ---
 
 ## Pipeline
 
 ```mermaid
-flowchart LR
-    RNG["6x xorshift32<br/>(stage 0)"] -->|"12 uniforms<br/>144b, Q0.12"| G["gaussian_clt<br/>adder tree<br/>(stage 1)"]
-    G -->|"z: s16 Q3.12"| X["x = a + b*z<br/>(stage 2)"]
-    X -->|"x: s19 Q2.16"| E["exp_fx<br/>1024x18 LUT + linear<br/>(stage 3, 3 cycles)"]
-    E -->|"e^x: u18 Q3.15"| S["S_T = S0 * e^x<br/>(stage 4a)"]
-    S -->|"S_T: u21 Q13.8"| P["max(S_T - K, 0)<br/>(stage 4b)"]
-    P -->|"payoff: u21"| A["accumulator<br/>u48 Q40.8<br/>(stage 5)"]
-    A --> H["host: sum / n * e^-rT"]
+flowchart TB
+    subgraph R1["Stages 0-2: random numbers to x"]
+        direction LR
+        RNG["6x xorshift32<br/>(stage 0)"] -->|"12 uniforms<br/>144b, Q0.12"| G["gaussian_clt<br/>adder tree<br/>(stage 1)"]
+        G -->|"z: s16 Q3.12"| X["x = a + b*z<br/>(stage 2)"]
+    end
+    subgraph R2["Stages 3-5: exp to payoff to sum"]
+        direction LR
+        E["exp_fx<br/>1024x18 LUT + linear<br/>(stage 3, 3 cycles)"] -->|"e^x: u18 Q3.15"| S["S_T = S0 * e^x<br/>(stage 4a)"]
+        S -->|"S_T: u21 Q13.8"| P["max(S_T - K, 0)<br/>(stage 4b)"]
+        P -->|"payoff: u21"| A["accumulator<br/>u48 Q40.8<br/>(stage 5)"]
+    end
+    R1 -->|"x: s19 Q2.16"| R2
+    R2 --> H["host: sum / n * e^-rT"]
 ```
 
 The host precomputes two constants, `a = (r − σ²/2)T` and `b = σ√T`. The hardware then runs only the per-path inner loop, `S_T = S0 · exp(a + b·Z)`, `payoff = max(S_T − K, 0)`, and the host divides the final sum by n and discounts. Every stage carries a `valid` bit alongside its data, so pipeline bubbles never reach the accumulator. Latency from issue to accumulate is 8 cycles. Throughput is 1 path per cycle.
