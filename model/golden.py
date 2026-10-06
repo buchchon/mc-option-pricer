@@ -7,6 +7,8 @@ import math
 import numpy as np
 
 MASK32 = 0xFFFF_FFFF
+U_BITS = 12 #bits per hardware uniform 
+SIX_FX = 6 << U_BITS 
 
 def norm_cdf(x):
     """
@@ -93,6 +95,17 @@ def xorshift32(state, n):
         state ^= (state << 5) & MASK32
         out.append(state)
     return out
+
+def clt_normal_fixed(u_list):
+    """
+    bit-exact model of rtl/gaussian_clt.sv
+    Args: u_list = 12 ints in [0, 4095]
+    Returns: signed int, Z in Q3.12
+    """
+    total = 0
+    for u in u_list:
+        total = total + u
+    return total - SIX_FX
 
 if __name__ == "__main__":
     S0 = 100
