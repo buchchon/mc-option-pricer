@@ -9,7 +9,6 @@ module exp_fx (
 
     //table lookup
     logic [9:0] index; // table index
-    logic [7:0] x_lo; 
     logic [17:0] t; //T[idx] from table
     logic [25:0] prod; // t * x_lo
 
@@ -18,18 +17,58 @@ module exp_fx (
     //verilator lint_on UNUSEDSIGNAL
     logic [9:0] corr; //round(t * x_lo / 2^16), always < 2^10
     logic [17:0] y_next;
-    logic oor_next;
 
+    //pipeline register 1
+    logic [17:0] t_q;
+    logic [7:0] x_lo_q;
+    logic valid_q, oor_q;
+
+    //pipeline register 2
+    logic [17:0] t_q2;
+    logic [7:0] x_lo_q2;
+    logic valid_q2, oor_q2;
+
+    assign index = x[17:8];
     exp_lut lut (.idx(index), .val(t)); //instantitate table
 
+
+    //register 1
+    always_ff @(posedge clk) begin
+        if (~rst_n) begin
+            valid_q <= 1'b0;
+            oor_q <= 1'b0;
+            t_q <= 18'd0;
+            x_lo_q <= 8'd0;
+        end
+        else begin
+            valid_q <= in_valid;
+            oor_q <= (x[18] != x[17]);
+            t_q <= t;
+            x_lo_q <= x[7:0];
+        end
+    end
+
+    //register 2
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            valid_q2 <= 1'b0;
+            oor_q2 <= 1'b0;
+            t_q2 <= 18'd0;
+            x_lo_q2 <= 8'd0;
+        end
+        else begin
+            valid_q2 <= valid_q;
+            oor_q2 <= oor_q;
+            t_q2 <= t_q;
+            x_lo_q2 <= x_lo_q;
+        end
+    end
+
     always_comb begin
-        index = x[17:8];
-        x_lo = x[7:0];
-        oor_next = (x[18] != x[17]);
-        prod = t * x_lo;
+        prod = t_q2 * x_lo_q2;
         rounded = prod + 26'd32768;
         corr = rounded[25:16];
-        y_next = t + {8'd0, corr};
+        y_next = t_q2 + {8'd0, corr};
     end
 
     always_ff @(posedge clk) begin
@@ -39,8 +78,8 @@ module exp_fx (
             y <= 18'd0;
         end
         else begin
-            out_valid <= in_valid;
-            out_of_range <= oor_next;
+            out_valid <= valid_q2;
+            out_of_range <= oor_q2;
             y <= y_next;
         end
     end
