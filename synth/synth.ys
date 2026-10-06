@@ -1,0 +1,4 @@
+read_verilog -sv rtl/xorshift32.sv rtl/gaussian_clt.sv rtl/exp_lut.sv rtl/exp_fx.sv rtl/mc_lane.sv
+synth_ecp5 -top mc_lane -json synth/mc_lane.json
+stat
+
