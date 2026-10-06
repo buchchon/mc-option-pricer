@@ -222,4 +222,5 @@ __marimo__/
 sim_build/
 *.vcd
 *.fst
-results.xmlsynth/*.json
+results.xml
+synth/*.json
