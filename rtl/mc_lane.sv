@@ -80,19 +80,35 @@ module mc_lane (
     exp_fx expu (.clk(clk), .rst_n(rst_n), .in_valid(x_valid), .x(x),
                  .out_valid(e_valid), .out_of_range(e_oor), .y(e));
     
-    //stage 4: S_T and payoff
+    //stage 4a: S_T = S0 * e, rounded, then registered
     logic [35:0] s_prod;
     //verilator lint_off UNUSEDSIGNAL
     logic [35:0] s_rnd; //only bits [35:15] kept
     //verilator lint_on UNUSEDSIGNAL
-    logic [20:0] s_t, payoff_next, payoff;
-    logic p_valid;
+    logic [20:0] s_t, s_t_q;
+    logic s_valid;
     always_comb begin
         s_prod = s0 * e;
         s_rnd = s_prod + 36'd16384; //round + half LSB
         s_t = s_rnd[35:15];
-        if (s_t > {3'd0, k}) begin
-            payoff_next = s_t - {3'd0, k};
+    end
+    always_ff @(posedge clk) begin 
+        if (!rst_n) begin
+            s_valid <= 1'b0;
+            s_t_q <= 21'd0;
+        end
+        else begin
+            s_valid <= e_valid;
+            s_t_q <= s_t;
+        end
+    end
+
+    //stage 4b: payoff = max(S_T - K, 0)
+    logic [20:0] payoff_next, payoff;
+    logic p_valid;
+    always_comb begin
+        if (s_t_q > {3'd0, k}) begin
+            payoff_next = s_t_q - {3'd0, k};
         end
         else begin
             payoff_next = 21'd0;
@@ -104,7 +120,7 @@ module mc_lane (
             payoff <= 21'd0;
         end
         else begin
-            p_valid <= e_valid;
+            p_valid <= s_valid;
             payoff <= payoff_next;
         end
     end
