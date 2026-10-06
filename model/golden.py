@@ -13,6 +13,8 @@ X_FRAC = 16 #x is signed Q2.16
 E_FRAC = 15 #e is unsigned Q3.15
 LUT_BITS = 10
 LO_BITS = 8 #will use linear correction to handle
+AB_FRAC = 20
+S_FRAC = 8
 
 
 def norm_cdf(x):
@@ -143,6 +145,45 @@ def exp_fixed(x):
     x_lo = x & ((1 << LO_BITS) - 1) #x[7:0]
     t = EXP_LUT[idx]
     return t + ((t * x_lo + (1 << 15)) >> 16)#T + round(T*x_lo / 2^16)
+
+def to_fx(v, frac):
+    """
+    Converts a real number to fixed point integer with fraction bits
+    """
+    return round(v * (1 << frac))
+
+def mc_lane_model(seeds, a_fx, b_fx, s0_fx, k_fx, n):
+    """
+    Bit exact model of rtl/mc_lane.sv
+
+    Args:
+        seeds: list of 6 nonzero 32-bit seeds one per xorshift
+        a_fx, b_fx: host constatns a, b in signed Q3.20
+        s0_fx, k_fx: S0 and k in Q10.8
+        n: number of paths
+    Return: sum of payoffs as int in Q?.8, True if any x was out of range
+    """
+    states = list(seeds)
+    total = 0
+    oor = False
+    for _ in range(n):
+        us = []
+        for st in states: #2 uniforms per RNG
+            us.append((st >> 20) & 0xFFF) #r[31:20]
+            us.append((st >> 8) & 0xFFF) #r[19:8]
+        z = clt_normal_fixed(us)
+        x = (a_fx * (1 << 12) + b_fx * z + (1 << 15)) >> 16
+        if not -(1 << 17) <= x < (1 << 17):
+            oor = True
+        x &= (1 << 19) - 1 #wrap to 19 bits like hardware
+        if x >= (1 << 18):
+            x -= (1 << 19)
+        e = exp_fixed(x)
+        s_t = (s0_fx * e  + (1 << 14)) >> 15
+        total += max(s_t - k_fx, 0)
+        states = [xorshift32(st, 1)[0] for st in states]
+    return total, oor
+
 
 if __name__ == "__main__":
     S0 = 100
