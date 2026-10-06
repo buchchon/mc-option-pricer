@@ -7,6 +7,7 @@ module exp_fx (
     output logic out_of_range, //high if |x| >= 2
     output logic [17:0] y); //e^x, unsigned Q3.15
 
+    //table lookup
     logic [9:0] index; // table index
     logic [7:0] x_lo; 
     logic [17:0] t; //T[idx] from table

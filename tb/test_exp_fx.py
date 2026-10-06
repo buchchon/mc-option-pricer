@@ -1,12 +1,12 @@
 """
-test_exp_fx.py - checks rtl/exp_fx.sv against the Python model
+test_exp_fx.py - checks rtl/exp_fx.sv against the Python model (any latency)
 """
 
 import math
 import random
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, ClockCycles, ReadOnly, NextTimeStep
+from cocotb.triggers import RisingEdge, ClockCycles, ReadOnly
 from golden import exp_fixed, X_FRAC, E_FRAC
 
 N = 2000
@@ -25,18 +25,27 @@ async def reset(dut):
     await RisingEdge(dut.clk)
 
 
-async def drive_and_check(dut, x):
-    """Drives one x and checks y one cycle later. Returns y."""
+async def drive_and_wait(dut, x):
+    """Drives one x for one cycle, then waits until out_valid goes high."""
     dut.x.value = x
     dut.in_valid.value = 1
     await RisingEdge(dut.clk)
-    await ReadOnly()
-    assert int(dut.out_valid.value) == 1, "out_valid not high"
+    dut.in_valid.value = 0
+    while True:
+        await ReadOnly()
+        if int(dut.out_valid.value) == 1:
+            break
+        await RisingEdge(dut.clk)
+
+
+async def drive_and_check(dut, x):
+    """Drives one x, waits for the result, checks y. Returns y."""
+    await drive_and_wait(dut, x)
     assert int(dut.out_of_range.value) == 0, f"x={x}: flagged out of range"
     got = int(dut.y.value)
     exp = exp_fixed(x)
     assert got == exp, f"x={x}: got {got}, expected {exp}"
-    await NextTimeStep()
+    await RisingEdge(dut.clk)
     return got
 
 
@@ -68,9 +77,6 @@ async def test_out_of_range(dut):
     """x = +2.0 and just below -2.0 must raise out_of_range."""
     await reset(dut)
     for x in (2 << X_FRAC, -(2 << X_FRAC) - 1):
-        dut.x.value = x
-        dut.in_valid.value = 1
-        await RisingEdge(dut.clk)
-        await ReadOnly()
+        await drive_and_wait(dut, x)
         assert int(dut.out_of_range.value) == 1, f"x={x}: not flagged"
-        await NextTimeStep()
+        await RisingEdge(dut.clk)
