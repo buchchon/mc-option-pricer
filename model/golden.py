@@ -9,6 +9,11 @@ import numpy as np
 MASK32 = 0xFFFF_FFFF
 U_BITS = 12 #bits per hardware uniform 
 SIX_FX = 6 << U_BITS 
+X_FRAC = 16 #x is signed Q2.16
+E_FRAC = 15 #e is unsigned Q3.15
+LUT_BITS = 10
+LO_BITS = 8 #will use linear correction to handle
+
 
 def norm_cdf(x):
     """
@@ -106,6 +111,38 @@ def clt_normal_fixed(u_list):
     for u in u_list:
         total = total + u
     return total - SIX_FX
+
+def exp_lut_table():
+    """
+    Builds 10 bit 1024 entry table s.t. T[i] = e^(x_hi) in Q3.15
+
+    Index i is x[17:8] read as a 10-bit two's complement number
+    """
+
+    table = []
+    for i in range(1 << LUT_BITS):
+        if i >= (1 << (LUT_BITS - 1)):
+            s = i - (1 << LUT_BITS)
+        else:
+            s = i
+        table.append(round(math.exp(s / (1 << LO_BITS)) * (1 << E_FRAC)))
+    return table
+
+EXP_LUT = exp_lut_table()
+
+def exp_fixed(x):
+    """
+    Bit exact model of hardware rtl/exp_fx.sv
+
+    Args:
+        x: signed int, x in Q2.16, valid for |x| < 2
+    return: unsigned int, e^x in Q3.15
+    """
+
+    idx = (x >> LO_BITS) & ((1 << LUT_BITS) - 1) #x[17:8]
+    x_lo = x & ((1 << LO_BITS) - 1) #x[7:0]
+    t = EXP_LUT[idx]
+    return t + ((t * x_lo + (1 << 15)) >> 16)#T + round(T*x_lo / 2^16)
 
 if __name__ == "__main__":
     S0 = 100
