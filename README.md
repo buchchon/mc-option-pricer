@@ -40,6 +40,7 @@ The host precomputes two constants, `a = (r − σ²/2)T` and `b = σ√T`. The 
 ---
 
 ## Results
+![Monte Carlo convergence to Black-Scholes](figures/out/convergence.png)
 
 ### Price (RTL simulation vs. Black-Scholes)
 
